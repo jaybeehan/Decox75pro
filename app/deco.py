@@ -70,6 +70,7 @@ class Snapshot:
     clients: list = field(default_factory=list)
     wan: dict = field(default_factory=dict)
     wifi: dict = field(default_factory=dict)  # {"main_2.4 GHz": True, ...}
+    radios: list = field(default_factory=list)  # per band: channel, width, mode, backhaul channel
     perf: dict = field(default_factory=dict)  # cpu/mem of main unit
 
     def to_dict(self):
@@ -297,6 +298,22 @@ class DecoSource:
                 for net in ("host", "guest"):
                     if isinstance(band.get(net), dict) and "enable" in band[net]:
                         snap.wifi[f"{'main' if net == 'host' else 'guest'}|{label}"] = bool(band[net]["enable"])
+            labels = {"band2_4": "2.4 GHz", "band5_1": "5 GHz", "band5_2": "5 GHz (2)", "band5": "5 GHz", "band6": "6 GHz"}
+            for key in sorted(k for k in wl if k.startswith("band")):
+                band = wl.get(key)
+                if not isinstance(band, dict):
+                    continue
+                host = band.get("host") or {}
+                bh = band.get("backhaul") or {}
+                width = str(host.get("channel_width", "") or "")
+                m = re.search(r"(\d+)", width)
+                snap.radios.append({
+                    "band": labels.get(key, key),
+                    "channel": host.get("channel"),
+                    "width": f"{m.group(1)} MHz" if m else (width or ""),
+                    "mode": host.get("mode", ""),
+                    "backhaul_channel": bh.get("channel"),
+                })
         except Exception:
             pass
         return snap
@@ -377,6 +394,9 @@ class DemoSource:
                         wan={"ip": "203.0.113.45", "gateway": "203.0.113.1", "dns": "1.1.1.1, 8.8.8.8",
                              "type": "dynamic_ip", "lan_ip": "192.168.68.1"},
                         wifi=dict(self.wifi),
+                        radios=[{"band": "2.4 GHz", "channel": 6, "width": "20 MHz", "mode": "11ax", "backhaul_channel": None},
+                                {"band": "5 GHz", "channel": 44, "width": "80 MHz", "mode": "11ax", "backhaul_channel": None},
+                                {"band": "6 GHz", "channel": 37, "width": "160 MHz", "mode": "11ax", "backhaul_channel": 37}],
                         perf={"cpu": round(random.uniform(0.05, 0.3), 2), "mem": 0.41})
 
     def raw(self):

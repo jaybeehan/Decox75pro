@@ -151,6 +151,10 @@ details summary::-webkit-details-marker{display:none}
     <div id="nodes"></div>
     <h2>Wi‑Fi networks</h2>
     <div class="list" id="wifi"></div>
+    <h2>Radio channels</h2>
+    <div class="card"><dl class="kv" id="radios" style="margin-top:0"></dl>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px">If something keeps dropping, a crowded 2.4 GHz
+        channel is the usual culprit; 1, 6 and 11 are the only ones that don't overlap.</div></div>
     <h2>Internet</h2>
     <div class="card"><dl class="kv" id="wan"></dl></div>
     <h2>Maintenance</h2>
@@ -330,6 +334,9 @@ function render(){
     catch(e){ i.checked=!i.checked; toast("Failed: "+e.message); }
     i.disabled = false; setTimeout(load, 3000);
   });
+  $("#radios").innerHTML = (S.radios||[]).map(r => `<dt>${esc(r.band)}</dt><dd>channel ${r.channel===0?"auto":esc(r.channel ?? "–")}` +
+      `${r.width?" · "+esc(r.width):""}${r.backhaul_channel?` · mesh link ch ${esc(r.backhaul_channel)}`:""}</dd>`).join("")
+    || "<dt>Not available yet</dt><dd></dd>";
   const w = S.wan||{}, p = S.perf||{};
   $("#wan").innerHTML = `<dt>Public IP</dt><dd>${esc(w.ip||"–")}</dd><dt>Gateway</dt><dd>${esc(w.gateway||"–")}</dd>
     <dt>DNS</dt><dd>${esc(w.dns||"–")}</dd><dt>Connection</dt><dd>${esc(w.type||"–")}</dd>

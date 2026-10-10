@@ -328,6 +328,7 @@ def api_state():
         "error_at": state.get("error_at"), "last_ok": state.get("last_ok"),
         "nodes": [n.__dict__ for n in snap.nodes] if snap and snap.ok else [],
         "wan": snap.wan if snap and snap.ok else {}, "wifi": snap.wifi if snap and snap.ok else {},
+        "radios": getattr(snap, "radios", []) if snap and snap.ok else [],
         "perf": snap.perf if snap and snap.ok else {},
         "online": online, "offline": offline, "events": events, "samples": samples,
         "unknown_count": sum(1 for c in online if not c["known"]),
