@@ -70,6 +70,9 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS presence (bucket INTEGER, mac TEXT, PRIMARY KEY (bucket, mac));
         """)
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(devices)")}
+        if "watch" not in cols:
+            con.execute("ALTER TABLE devices ADD COLUMN watch INTEGER DEFAULT 0")
 
 
 # ---- poller --------------------------------------------------------------
@@ -77,15 +80,23 @@ state = {"snapshot": None, "last_ok": None, "missing": {}}
 _poll_now = threading.Event()
 
 
-def notify(text: str):
-    if not NTFY_URL:
-        return
+def _send(text, title, tags, priority):
     try:
         import requests
-        requests.post(NTFY_URL, data=text.encode("utf-8"),
-                      headers={"Title": "Deco: new device", "Tags": "warning"}, timeout=10)
+        server, _, topic = NTFY_URL.rstrip("/").rpartition("/")
+        r = requests.post(server, timeout=10, json={
+            "topic": topic, "title": title, "message": text, "tags": [tags], "priority": priority})
+        r.raise_for_status()
+        return None
     except Exception as e:
         log.warning("ntfy failed: %s", e)
+        return str(e)
+
+
+def notify(text: str, title: str = "Deco: new device", tags: str = "warning", priority: int = 3):
+    """Push a phone notification via ntfy (in the background, so polling never waits on it)."""
+    if NTFY_URL:
+        threading.Thread(target=_send, args=(text, title, tags, priority), daemon=True).start()
 
 
 def record(snap):
@@ -112,6 +123,9 @@ def record(snap):
                 if was_offline:
                     con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                                 (now, mac, "online", f"{c.ip}, {c.band}"))
+                    if row["watch"]:
+                        who = row["nickname"] or c.name
+                        notify(f"{who} is back on Wi-Fi ({c.band}).", f"{who} connected", "green_circle")
             state["missing"].pop(mac, None)
 
         # devices that dropped out of the list
@@ -127,6 +141,10 @@ def record(snap):
             if state["missing"][mac] == OFFLINE_AFTER:
                 con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                             (now, mac, "offline", ""))
+                row = con.execute("SELECT name, nickname, watch FROM devices WHERE mac=?", (mac,)).fetchone()
+                if row and row["watch"]:
+                    who = row["nickname"] or row["name"] or mac
+                    notify(f"{who} has left the Wi-Fi.", f"{who} disconnected", "red_circle")
             if state["missing"][mac] > 10_000:
                 state["missing"].pop(mac)
 
@@ -183,16 +201,20 @@ def record_beta(con, snap, prev, present, now):
     if old_ip and new_ip and old_ip != new_ip:
         con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                     (now, "", "wan_ip", f"Public IP changed: {old_ip} → {new_ip}"))
+        notify(f"{old_ip} → {new_ip}", "Public IP changed", "globe_with_meridians", 2)
     main_now = next((n.internet for n in snap.nodes if n.role == "master"), "")
     main_before = next((n.internet for n in prev.nodes if n.role == "master"), "")
     if main_now and main_before and main_now != main_before:
         con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                     (now, "", "internet", f"Internet status: {main_before} → {main_now}"))
+        notify(f"Main Deco reports internet: {main_now}", "Internet status changed", "satellite", 4)
     for n in snap.nodes:
         p = next((x for x in prev.nodes if x.mac == n.mac), None)
         if p and p.online != n.online:
             con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                         (now, n.mac, "node", f"{n.name} {'back online' if n.online else 'dropped off the mesh'}"))
+            notify(f"{n.name} {'is back on the mesh' if n.online else 'dropped off the mesh'}.",
+                   f"Deco {n.name} {'back' if n.online else 'offline'}", "house", 3 if n.online else 4)
         if p and p.backhaul and n.backhaul and p.backhaul != n.backhaul:
             con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
                         (now, n.mac, "node", f"{n.name} mesh link: {p.backhaul} → {n.backhaul}"))
@@ -200,6 +222,16 @@ def record_beta(con, snap, prev, present, now):
 
 def log_reachability(ok: bool, error: str = ""):
     """Note in the network log when the dashboard loses / regains contact with the Deco."""
+    if ok:
+        if state.get("alerted_down"):
+            notify("The dashboard can read the Deco again.", "Deco reachable again", "white_check_mark", 2)
+        state["fail_count"], state["alerted_down"] = 0, False
+    else:
+        state["fail_count"] = state.get("fail_count", 0) + 1
+        if state["fail_count"] == 3:
+            state["alerted_down"] = True
+            notify(f"Couldn't reach the Deco for 3 readings in a row. The mesh may be down or rebooting.\n{error[:150]}",
+                   "Deco unreachable", "rotating_light", 4)
     was_down = state.get("deco_down", False)
     if ok == (not was_down):
         return
@@ -285,6 +317,7 @@ def api_state():
             d = devs.get(c.mac, {})
             online.append({**c.__dict__, "nickname": d.get("nickname", ""), "known": d.get("known", 1),
                            "first_seen": d.get("first_seen"), "notes": d.get("notes", ""),
+                           "watch": d.get("watch", 0),
                            "vendor": vendors.lookup(c.mac)})
     online_macs = {c["mac"] for c in online}
     offline = sorted(({**d, "vendor": vendors.lookup(m)} for m, d in devs.items() if m not in online_macs),
@@ -298,6 +331,7 @@ def api_state():
         "perf": snap.perf if snap and snap.ok else {},
         "online": online, "offline": offline, "events": events, "samples": samples,
         "unknown_count": sum(1 for c in online if not c["known"]),
+        "ntfy": bool(NTFY_URL),
     })
 
 
@@ -353,15 +387,48 @@ def api_beta():
 @auth
 def api_device(mac):
     body = request.get_json(force=True) or {}
-    fields = {k: body[k] for k in ("nickname", "notes", "known") if k in body}
-    if "known" in fields:
-        fields["known"] = 1 if fields["known"] else 0
+    fields = {k: body[k] for k in ("nickname", "notes", "known", "watch") if k in body}
+    for k in ("known", "watch"):
+        if k in fields:
+            fields[k] = 1 if fields[k] else 0
     if not fields:
         return jsonify({"ok": False, "error": "nothing to change"}), 400
     with _db_lock, db() as con:
         con.execute(f"UPDATE devices SET {', '.join(k + '=?' for k in fields)} WHERE mac=?",
                     (*fields.values(), mac.upper()))
     return jsonify({"ok": True})
+
+
+@app.post("/api/notify-test")
+@auth
+def api_notify_test():
+    if not NTFY_URL:
+        return jsonify({"ok": False, "error": "NTFY_URL isn't set in the compose file yet"}), 400
+    err = _send("If you can read this, alerts from your Deco dashboard will reach this phone.",
+                "Deco dashboard test", "tada", 3)
+    if err:
+        return jsonify({"ok": False, "error": err}), 502
+    return jsonify({"ok": True})
+
+
+@app.get("/api/export.csv")
+@auth
+def api_export():
+    import csv
+    import io
+    with _db_lock, db() as con:
+        rows = [dict(r) for r in con.execute("SELECT * FROM devices ORDER BY last_seen DESC")]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Name", "Nickname", "MAC", "Maker (guess)", "Last IP", "Band", "Network", "Recognised",
+                "Notify", "First seen", "Last seen", "Notes"])
+    fmt = lambda ts: time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
+    for r in rows:
+        w.writerow([r["name"], r["nickname"], r["mac"], vendors.lookup(r["mac"]), r["last_ip"], r["last_band"],
+                    r["last_network"], "yes" if r["known"] else "no", "yes" if r.get("watch") else "no",
+                    fmt(r["first_seen"]), fmt(r["last_seen"]), r["notes"]])
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename=deco-devices-{local_day(time.time())}.csv"})
 
 
 @app.post("/api/known-all")

@@ -168,6 +168,15 @@ details summary::-webkit-details-marker{display:none}
   </section>
   <section id="tab-beta" class="hidden">
     <div class="banner info">Experiments. Data amounts are estimates from the speed readings, so treat them as rough.</div>
+    <h2>Phone alerts</h2>
+    <div class="card">
+      <div id="b-ntfy" style="font-size:14px"></div>
+      <button class="btn" id="b-test">Send a test notification</button>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px">Alerts go out for: new devices, a Deco dropping off the mesh,
+        internet status changes, public IP changes, the Deco being unreachable, and any device you switch on
+        "Notify me" for (in its details).</div>
+    </div>
+    <a class="btn" href="/api/export.csv" style="text-align:center;text-decoration:none;margin-bottom:6px">Download device list (CSV)</a>
     <h2><span>Data used today (estimate)</span><span id="b-today"></span></h2>
     <div class="list" id="b-top"></div>
     <h2>Last 7 days</h2>
@@ -196,6 +205,10 @@ details summary::-webkit-details-marker{display:none}
   <div class="toggle" style="padding:12px 0 0;border:0">
     <span>I recognise this device</span>
     <label class="switch"><input type="checkbox" id="d-known"><i></i></label>
+  </div>
+  <div class="toggle" style="padding:12px 0 0;border:0">
+    <span>Notify me when it joins or leaves<br><small id="d-watch-hint" style="color:var(--muted)"></small></span>
+    <label class="switch"><input type="checkbox" id="d-watch"><i></i></label>
   </div>
   <button class="btn primary" id="d-save">Save</button>
   <button class="btn" id="d-close">Close</button>
@@ -239,7 +252,7 @@ function bytes(n){ if(n==null) return "–"; const u=["B","KB","MB","GB","TB"]; 
 function deviceRow(c, offline){
   const band = offline ? (c.last_band||"") : c.band;
   const net = offline ? c.last_network : c.network;
-  const chips = (!c.known ? '<span class="chip new">new</span>' : "") +
+  const chips = (!c.known ? '<span class="chip new">new</span>' : "") + (c.watch ? '<span class="chip">🔔</span>' : "") +
                 (net && net!=="main" ? `<span class="chip guest">${esc(net)}</span>` : "");
   const sv = shortVendor(c.vendor);
   const sub = offline ? `${esc(c.last_ip||"")} · last seen ${ago(c.last_seen)}${sv?" · "+esc(sv):""}`
@@ -347,6 +360,8 @@ function openSheet(mac, offline){
     <dt>First seen</dt><dd>${c.first_seen?new Date(c.first_seen*1000).toLocaleString():"–"}</dd>
     ${offline?"":`<dt>Speed now</dt><dd>↓ ${rate(c.down_bps)} · ↑ ${rate(c.up_bps)}</dd>`}`;
   $("#d-nick").value = c.nickname||""; $("#d-notes").value = c.notes||""; $("#d-known").checked = !!c.known;
+  $("#d-watch").checked = !!c.watch;
+  $("#d-watch-hint").textContent = S.ntfy ? "Sends a phone alert via ntfy" : "Needs ntfy set up (see Beta tab)";
   const am = $("#d-addmaker"); if (am) am.onclick = e => { e.preventDefault();
     const t = $("#d-notes"), line = "Maker: " + c.vendor;
     if (!t.value.includes(line)) t.value = t.value ? t.value.trimEnd() + "\n" + line : line; };
@@ -356,10 +371,13 @@ function closeSheet(){ $("#sheet").classList.remove("open"); setTimeout(()=>$("#
 $("#sheet-bg").onclick = closeSheet; $("#d-close").onclick = closeSheet;
 $("#d-save").onclick = async () => {
   if(!current) return;
-  try { await api("/api/device/"+encodeURIComponent(current.mac), {nickname:$("#d-nick").value.trim(), notes:$("#d-notes").value, known:$("#d-known").checked});
+  try { await api("/api/device/"+encodeURIComponent(current.mac), {nickname:$("#d-nick").value.trim(), notes:$("#d-notes").value, known:$("#d-known").checked, watch:$("#d-watch").checked});
     toast("Saved"); closeSheet(); load(); } catch(e){ toast("Failed: "+e.message); }
 };
 
+$("#b-test").onclick = async () => {
+  try { await api("/api/notify-test", {}); toast("Sent. Check your phone."); } catch(e){ toast(e.message); }
+};
 $("#reboot").onclick = async () => {
   if (!confirm("Reboot both Decos now? Wi‑Fi will be down for a few minutes.")) return;
   try { await api("/api/reboot", {}); toast("Rebooting…"); } catch(e){ toast("Failed: "+e.message); }
@@ -368,6 +386,7 @@ $("#refresh").onclick = async () => { await api("/api/refresh", {}); toast("Refr
 $("#q").oninput = () => S && render();
 
 async function loadBeta(){
+  if (S) $("#b-ntfy").innerHTML = S.ntfy ? "✅ ntfy is set up." : "ntfy isn't set up yet. Add <b>NTFY_URL</b> to the compose file and rebuild.";
   let B; try { B = await api("/api/beta"); } catch(e){ return; }
   // data used today
   const max = Math.max(1, ...B.top.map(t=>t.down+t.up));

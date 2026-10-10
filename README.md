@@ -51,6 +51,21 @@ When the code changes, GitHub rebuilds the image automatically. In Container Man
 **Project → deco-dashboard → Action → Build**. The compose file has `pull_policy: always`, so
 Build fetches the newest image. (If your compose file predates that line, add it under `image:`.)
 
+## Phone alerts (ntfy)
+
+[ntfy](https://ntfy.sh) is a free push-notification service; no account needed.
+
+1. Install the **ntfy** app (Google Play / App Store).
+2. In the app tap **+**, enter your topic name (the part after `ntfy.sh/`), and subscribe.
+   Anyone who knows the name can read the alerts, so make it long and random.
+3. Put the full address in the compose file, e.g. `NTFY_URL: "https://ntfy.sh/deco-xxxxxxxxxxxx"`,
+   and Build.
+4. On the dashboard's Beta tab, tap **Send a test notification**.
+
+Alerts go out for new devices, a Deco dropping off the mesh, internet status and public IP
+changes, the Deco being unreachable for 3 readings, and any device with **Notify me when it
+joins or leaves** switched on.
+
 ## Settings (environment variables)
 
 | Variable | Default | Meaning |
