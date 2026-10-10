@@ -10,6 +10,7 @@ from functools import wraps
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+import oui
 from deco import DecoSource, DemoSource
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -30,6 +31,13 @@ os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "deco.db")
 
 source = DemoSource() if DEMO else DecoSource(DECO_HOST, DECO_PASSWORD)
+vendors = oui.OuiDB()
+PRESENCE_BUCKET = 300  # seconds per presence slot (5 min)
+USER_EVENT_KINDS = ("new", "online", "offline")  # shown on the Activity tab; the rest go to Beta
+
+
+def local_day(ts: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 # ---- database ------------------------------------------------------------
 _db_lock = threading.Lock()
@@ -57,6 +65,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS samples (ts REAL, clients INTEGER, down INTEGER, up INTEGER);
         CREATE INDEX IF NOT EXISTS samples_ts ON samples(ts);
         CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS usage (
+            day TEXT, mac TEXT, down INTEGER DEFAULT 0, up INTEGER DEFAULT 0, PRIMARY KEY (day, mac)
+        );
+        CREATE TABLE IF NOT EXISTS presence (bucket INTEGER, mac TEXT, PRIMARY KEY (bucket, mac));
         """)
 
 
@@ -122,12 +134,88 @@ def record(snap):
         up = sum(c.up_bps or 0 for c in snap.clients)
         con.execute("INSERT INTO samples VALUES (?,?,?,?)", (now, len(present), down, up))
         con.execute("INSERT OR REPLACE INTO meta VALUES ('baseline','1')")
+
+        record_beta(con, snap, prev, present, now)
+
         con.execute("DELETE FROM samples WHERE ts < ?", (now - 30 * 86400,))
         con.execute("DELETE FROM events WHERE ts < ?", (now - 180 * 86400,))
+        con.execute("DELETE FROM presence WHERE bucket < ?", (int((now - 8 * 86400) // PRESENCE_BUCKET),))
+        con.execute("DELETE FROM usage WHERE day < ?", (local_day(now - 90 * 86400),))
+
+
+def _node_names(snap):
+    return {n.mac: n.name for n in snap.nodes}
+
+
+def record_beta(con, snap, prev, present, now):
+    """Extra history for the Beta tab: data usage, presence, roaming, network changes."""
+    # Estimated data per device: current speed x time since the last reading.
+    last = state.get("last_ok")
+    dt = min(now - last, 3 * POLL_SECONDS) if last else 0
+    if dt > 0:
+        day = local_day(now)
+        for mac, c in present.items():
+            d, u = int((c.down_bps or 0) * dt), int((c.up_bps or 0) * dt)
+            if d or u:
+                con.execute("""INSERT INTO usage (day,mac,down,up) VALUES (?,?,?,?)
+                               ON CONFLICT(day,mac) DO UPDATE SET down=down+excluded.down, up=up+excluded.up""",
+                            (day, mac, d, u))
+
+    bucket = int(now // PRESENCE_BUCKET)
+    con.executemany("INSERT OR IGNORE INTO presence VALUES (?,?)", [(bucket, m) for m in present])
+
+    if not (prev and prev.ok):
+        return
+    names = _node_names(snap) | _node_names(prev)
+    before = {c.mac: c for c in prev.clients}
+    for mac, c in present.items():
+        p = before.get(mac)
+        if not p:
+            continue
+        moved = p.node_mac and c.node_mac and p.node_mac != c.node_mac
+        if moved or (p.band != c.band):
+            frm = f"{names.get(p.node_mac, '?')} · {p.band}"
+            to = f"{names.get(c.node_mac, '?')} · {c.band}"
+            con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                        (now, mac, "roam" if moved else "band", f"{frm} → {to}"))
+
+    old_ip, new_ip = (prev.wan or {}).get("ip"), (snap.wan or {}).get("ip")
+    if old_ip and new_ip and old_ip != new_ip:
+        con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                    (now, "", "wan_ip", f"Public IP changed: {old_ip} → {new_ip}"))
+    main_now = next((n.internet for n in snap.nodes if n.role == "master"), "")
+    main_before = next((n.internet for n in prev.nodes if n.role == "master"), "")
+    if main_now and main_before and main_now != main_before:
+        con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                    (now, "", "internet", f"Internet status: {main_before} → {main_now}"))
+    for n in snap.nodes:
+        p = next((x for x in prev.nodes if x.mac == n.mac), None)
+        if p and p.online != n.online:
+            con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                        (now, n.mac, "node", f"{n.name} {'back online' if n.online else 'dropped off the mesh'}"))
+        if p and p.backhaul and n.backhaul and p.backhaul != n.backhaul:
+            con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                        (now, n.mac, "node", f"{n.name} mesh link: {p.backhaul} → {n.backhaul}"))
+
+
+def log_reachability(ok: bool, error: str = ""):
+    """Note in the network log when the dashboard loses / regains contact with the Deco."""
+    was_down = state.get("deco_down", False)
+    if ok == (not was_down):
+        return
+    state["deco_down"] = not ok
+    try:
+        with _db_lock, db() as con:
+            con.execute("INSERT INTO events (ts,mac,kind,detail) VALUES (?,?,?,?)",
+                        (time.time(), "", "deco",
+                         "Dashboard reached the Deco again" if ok else f"Couldn't reach the Deco: {error[:120]}"))
+    except Exception:
+        log.exception("could not log reachability")
 
 
 def poll_once():
     snap = source.snapshot()
+    log_reachability(snap.ok, snap.error)
     if snap.ok:
         try:
             record(snap)
@@ -184,7 +272,8 @@ def api_state():
         devs = {r["mac"]: dict(r) for r in con.execute("SELECT * FROM devices")}
         events = [dict(r) for r in con.execute(
             "SELECT e.*, d.name, d.nickname FROM events e LEFT JOIN devices d ON d.mac=e.mac "
-            "ORDER BY ts DESC LIMIT 100")]
+            f"WHERE e.kind IN ({','.join('?' * len(USER_EVENT_KINDS))}) ORDER BY ts DESC LIMIT 100",
+            USER_EVENT_KINDS)]
         since = time.time() - 24 * 3600
         samples = [dict(r) for r in con.execute(
             "SELECT * FROM samples WHERE ts > ? ORDER BY ts", (since,))]
@@ -193,9 +282,10 @@ def api_state():
         for c in snap.clients:
             d = devs.get(c.mac, {})
             online.append({**c.__dict__, "nickname": d.get("nickname", ""), "known": d.get("known", 1),
-                           "first_seen": d.get("first_seen"), "notes": d.get("notes", "")})
+                           "first_seen": d.get("first_seen"), "notes": d.get("notes", ""),
+                           "vendor": vendors.lookup(c.mac)})
     online_macs = {c["mac"] for c in online}
-    offline = sorted((d for m, d in devs.items() if m not in online_macs),
+    offline = sorted(({**d, "vendor": vendors.lookup(m)} for m, d in devs.items() if m not in online_macs),
                      key=lambda d: -(d["last_seen"] or 0))
     return jsonify({
         "demo": DEMO, "poll_seconds": POLL_SECONDS,
@@ -206,6 +296,54 @@ def api_state():
         "perf": snap.perf if snap and snap.ok else {},
         "online": online, "offline": offline, "events": events, "samples": samples,
         "unknown_count": sum(1 for c in online if not c["known"]),
+    })
+
+
+@app.get("/api/beta")
+@auth
+def api_beta():
+    now = time.time()
+    today, week_ago = local_day(now), local_day(now - 6 * 86400)
+    first_bucket = int((now - 24 * 3600) // PRESENCE_BUCKET) + 1
+    with _db_lock, db() as con:
+        devs = {r["mac"]: dict(r) for r in con.execute("SELECT mac, name, nickname, known FROM devices")}
+        top = [dict(r) for r in con.execute(
+            "SELECT mac, down, up FROM usage WHERE day=? ORDER BY down+up DESC LIMIT 15", (today,))]
+        days = [dict(r) for r in con.execute(
+            "SELECT day, SUM(down) AS down, SUM(up) AS up FROM usage WHERE day>=? GROUP BY day ORDER BY day",
+            (week_ago,))]
+        pres = {}
+        for r in con.execute("SELECT bucket, mac FROM presence WHERE bucket>=?", (first_bucket,)):
+            pres.setdefault(r["mac"], []).append(r["bucket"] - first_bucket)
+        log_rows = [dict(r) for r in con.execute(
+            "SELECT e.ts, e.mac, e.kind, e.detail, d.name, d.nickname FROM events e "
+            "LEFT JOIN devices d ON d.mac=e.mac "
+            f"WHERE e.kind NOT IN ({','.join('?' * len(USER_EVENT_KINDS))}) ORDER BY ts DESC LIMIT 150",
+            USER_EVENT_KINDS)]
+
+    def label(mac):
+        d = devs.get(mac, {})
+        return d.get("nickname") or d.get("name") or mac
+
+    snap = state["snapshot"]
+    makers = {}
+    if snap and snap.ok:
+        for c in snap.clients:
+            v = vendors.lookup(c.mac) or "Unknown"
+            makers[v] = makers.get(v, 0) + 1
+    presence = sorted(({"mac": m, "label": label(m), "known": devs.get(m, {}).get("known", 1),
+                        "slots": sorted(s)} for m, s in pres.items()),
+                      key=lambda x: x["label"].lower())
+    return jsonify({
+        "today": today,
+        "top": [{**t, "label": label(t["mac"]), "vendor": vendors.lookup(t["mac"])} for t in top],
+        "days": days,
+        "presence": presence, "slots": 24 * 3600 // PRESENCE_BUCKET, "slot_seconds": PRESENCE_BUCKET,
+        "first_slot_ts": first_bucket * PRESENCE_BUCKET,
+        "roams": [{**r, "label": label(r["mac"])} for r in log_rows if r["kind"] in ("roam", "band")][:60],
+        "network": [r for r in log_rows if r["kind"] in ("wan_ip", "internet", "node", "deco")][:60],
+        "makers": sorted(makers.items(), key=lambda kv: -kv[1]),
+        "vendor_db": bool(vendors.tables),
     })
 
 
@@ -280,6 +418,7 @@ def main():
     if not DEMO and not DECO_PASSWORD:
         log.error("DECO_PASSWORD is not set. Set it in the compose file.")
     init_db()
+    oui.start(vendors, DATA_DIR)
     threading.Thread(target=poller, daemon=True).start()
     port = int(os.environ.get("PORT", "8080"))
     log.info("Deco dashboard on port %s (demo=%s, host=%s, every %ss)", port, DEMO, DECO_HOST, POLL_SECONDS)

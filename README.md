@@ -10,6 +10,13 @@ wired), network (main/guest/IoT) and live speed · each Deco station's IP, backh
 firmware · public IP, DNS, CPU and memory of the main unit · 24-hour charts of devices online
 and total download.
 
+**Manufacturer guess** for every device from its MAC address (IEEE registry via Wireshark's list),
+with private/random phone addresses flagged.
+
+**Beta tab:** estimated data used per device today and per day for the last week, a 24-hour
+"who's been online" timeline, device makers online now, a log of devices switching Deco or band,
+and a network log (public IP changes, internet drops, mesh link changes, dashboard losing contact).
+
 **Controls:** turn main or guest Wi-Fi on/off per band · reboot the mesh.
 
 **Adds what the Deco app lacks:** a history of every device ever seen (first/last seen),

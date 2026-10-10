@@ -105,6 +105,13 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
   padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;opacity:0;transition:.2s;pointer-events:none}
 .toast.on{opacity:1}
 details summary{cursor:pointer;list-style:none}
+.bar{height:6px;border-radius:3px;background:var(--b5);margin-top:5px}
+.tl{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line)}
+.tl:first-child{border-top:0}
+.tl .who{width:34%;flex:none;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl svg{flex:1;height:14px;display:block}
+.maker{display:inline-block;background:var(--chip);border-radius:99px;padding:3px 10px;margin:3px;font-size:13px}
+.maker b{color:var(--muted);font-weight:600;margin-left:4px}
 details summary::-webkit-details-marker{display:none}
 </style>
 </head>
@@ -119,6 +126,7 @@ details summary::-webkit-details-marker{display:none}
     <button data-tab="devices" class="on">Devices</button>
     <button data-tab="mesh">Mesh</button>
     <button data-tab="activity">Activity</button>
+    <button data-tab="beta">Beta</button>
   </nav>
 </header>
 
@@ -157,6 +165,21 @@ details summary::-webkit-details-marker{display:none}
     <div class="chart"><div class="lbl"><span>Total download · 24 h</span><span id="c-down"></span></div><svg id="chart-down"></svg></div>
     <h2>Events</h2>
     <div class="list" id="events"></div>
+  </section>
+  <section id="tab-beta" class="hidden">
+    <div class="banner info">Experiments. Data amounts are estimates from the speed readings, so treat them as rough.</div>
+    <h2><span>Data used today (estimate)</span><span id="b-today"></span></h2>
+    <div class="list" id="b-top"></div>
+    <h2>Last 7 days</h2>
+    <div class="chart"><svg id="b-days" style="height:110px"></svg></div>
+    <h2><span>Who's been online · 24 h</span><span>now →</span></h2>
+    <div class="list" id="b-presence"></div>
+    <h2>Device makers online now</h2>
+    <div class="card" id="b-makers"></div>
+    <h2>Roaming between Decos and bands</h2>
+    <div class="list" id="b-roams"></div>
+    <h2>Network log</h2>
+    <div class="list" id="b-network"></div>
   </section>
 </main>
 
@@ -202,19 +225,25 @@ async function api(path, body){
 // tabs
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x===b));
-  ["devices","mesh","activity"].forEach(t => $("#tab-"+t).classList.toggle("hidden", t!==b.dataset.tab));
+  ["devices","mesh","activity","beta"].forEach(t => $("#tab-"+t).classList.toggle("hidden", t!==b.dataset.tab));
+  if (b.dataset.tab === "beta") loadBeta();
 });
 
 function nodeName(mac){ const n=(S.nodes||[]).find(n=>n.mac===mac); return n?n.name:""; }
 function label(c){ return c.nickname || c.name || c.mac; }
+function shortVendor(v){ if(!v) return ""; if(v.startsWith("Private")) return "private MAC";
+  return v.replace(/[,.]?\s*(Inc|Incorporated|Ltd|Limited|LLC|Co|Corp|Corporation|GmbH|AG|S\.A|Technologies|Technology|Electronics|International)\.?\b.*$/i,"").trim() || v; }
+function bytes(n){ if(n==null) return "–"; const u=["B","KB","MB","GB","TB"]; let i=0;
+  while(n>=1000&&i<u.length-1){n/=1000;i++;} return (i?n.toFixed(n<10?1:0):n)+" "+u[i]; }
 
 function deviceRow(c, offline){
   const band = offline ? (c.last_band||"") : c.band;
   const net = offline ? c.last_network : c.network;
   const chips = (!c.known ? '<span class="chip new">new</span>' : "") +
                 (net && net!=="main" ? `<span class="chip guest">${esc(net)}</span>` : "");
-  const sub = offline ? `${esc(c.last_ip||"")} · last seen ${ago(c.last_seen)}`
-                      : `${esc(c.ip)}${c.nickname && c.name!==c.nickname ? " · "+esc(c.name) : ""}`;
+  const sv = shortVendor(c.vendor);
+  const sub = offline ? `${esc(c.last_ip||"")} · last seen ${ago(c.last_seen)}${sv?" · "+esc(sv):""}`
+                      : `${esc(c.ip)}${c.nickname && c.name!==c.nickname ? " · "+esc(c.name) : ""}${sv?" · "+esc(sv):""}`;
   const speed = offline ? "" : `↓ ${rate(c.down_bps)}<br>↑ ${rate(c.up_bps)}`;
   return `<div class="row" data-mac="${esc(c.mac)}" data-off="${offline?1:0}">
     <div class="badge" style="background:${band?bandColor(band):"var(--wired)"};${offline?"opacity:.45":""}">${band?bandShort(band):"?"}</div>
@@ -235,7 +264,7 @@ function render(){
 
   // devices
   const q = $("#q").value.trim().toLowerCase();
-  const match = c => !q || [c.name,c.nickname,c.ip,c.last_ip,c.mac].some(v => (v||"").toLowerCase().includes(q));
+  const match = c => !q || [c.name,c.nickname,c.ip,c.last_ip,c.mac,c.vendor].some(v => (v||"").toLowerCase().includes(q));
   const online = S.online.filter(match).sort((a,b) => (a.known-b.known) || label(a).localeCompare(label(b)));
   $("#s-online").textContent = S.online.length;
   $("#s-down").textContent = rate(S.online.reduce((a,c)=>a+(c.down_bps||0),0));
@@ -312,10 +341,15 @@ function openSheet(mac, offline){
   $("#d-sub").textContent = offline ? "Offline · last seen "+ago(c.last_seen) : `Online on ${nodeName(c.node_mac)||"mesh"}`;
   const band = offline?c.last_band:c.band, ip = offline?c.last_ip:c.ip, net = offline?c.last_network:c.network;
   $("#d-kv").innerHTML = `<dt>Reported name</dt><dd>${esc(c.name)}</dd><dt>IP</dt><dd>${esc(ip||"–")}</dd>
-    <dt>MAC</dt><dd>${esc(c.mac)}</dd><dt>Connection</dt><dd>${esc(band||"–")} · ${esc(net||"main")} network</dd>
+    <dt>MAC</dt><dd>${esc(c.mac)}</dd>
+    <dt>Maker (best guess)</dt><dd>${esc(c.vendor || "not in database")}${c.vendor && !c.vendor.startsWith("Private") ? ` <a href="#" id="d-addmaker" style="color:var(--accent);font-size:12px;white-space:nowrap">add to notes</a>` : ""}</dd>
+    ${(c.vendor||"").startsWith("Private") ? `<dt></dt><dd style="font-size:12px;color:var(--muted)">This device hides its real address (common on phones and laptops). Turning off "private" or "random" MAC for this Wi‑Fi on the device lets the dashboard track it reliably.</dd>` : ""}<dt>Connection</dt><dd>${esc(band||"–")} · ${esc(net||"main")} network</dd>
     <dt>First seen</dt><dd>${c.first_seen?new Date(c.first_seen*1000).toLocaleString():"–"}</dd>
     ${offline?"":`<dt>Speed now</dt><dd>↓ ${rate(c.down_bps)} · ↑ ${rate(c.up_bps)}</dd>`}`;
   $("#d-nick").value = c.nickname||""; $("#d-notes").value = c.notes||""; $("#d-known").checked = !!c.known;
+  const am = $("#d-addmaker"); if (am) am.onclick = e => { e.preventDefault();
+    const t = $("#d-notes"), line = "Maker: " + c.vendor;
+    if (!t.value.includes(line)) t.value = t.value ? t.value.trimEnd() + "\n" + line : line; };
   $("#sheet-bg").style.display="block"; requestAnimationFrame(()=>$("#sheet").classList.add("open"));
 }
 function closeSheet(){ $("#sheet").classList.remove("open"); setTimeout(()=>$("#sheet-bg").style.display="none",200); current=null; }
@@ -333,8 +367,56 @@ $("#reboot").onclick = async () => {
 $("#refresh").onclick = async () => { await api("/api/refresh", {}); toast("Refreshing…"); setTimeout(load, 4000); };
 $("#q").oninput = () => S && render();
 
+async function loadBeta(){
+  let B; try { B = await api("/api/beta"); } catch(e){ return; }
+  // data used today
+  const max = Math.max(1, ...B.top.map(t=>t.down+t.up));
+  $("#b-today").textContent = bytes(B.top.reduce((a,t)=>a+t.down+t.up,0));
+  $("#b-top").innerHTML = B.top.map(t => `<div class="row" style="cursor:default"><div class="main">
+      <div class="name">${esc(t.label)}</div>
+      <div class="sub">↓ ${bytes(t.down)} · ↑ ${bytes(t.up)}${t.vendor?" · "+esc(shortVendor(t.vendor)):""}</div>
+      <div class="bar" style="width:${(100*(t.down+t.up)/max).toFixed(1)}%"></div></div>
+      <div class="speed">${bytes(t.down+t.up)}</div></div>`).join("")
+    || `<div class="empty">Builds up over the day.</div>`;
+  // 7 days
+  const svg = $("#b-days"), W=300, H=110;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!B.days.length) svg.innerHTML = `<text x="${W/2}" y="55" text-anchor="middle" font-size="12" fill="var(--muted)">collecting data…</text>`;
+  else {
+    const dm = Math.max(1, ...B.days.map(d=>d.down+d.up)), bw = W/7;
+    svg.innerHTML = B.days.map((d,i) => { const h=(H-30)*(d.down+d.up)/dm, x=i*bw+bw*0.15, wd=bw*0.7;
+      const lbl = new Date(d.day+"T12:00").toLocaleDateString([], {weekday:"short"});
+      return `<rect x="${x}" y="${H-18-h}" width="${wd}" height="${Math.max(h,1)}" rx="3" fill="var(--b5)"/>
+        <text x="${x+wd/2}" y="${H-4}" text-anchor="middle" font-size="10" fill="var(--muted)">${lbl}</text>
+        <text x="${x+wd/2}" y="${H-22-h}" text-anchor="middle" font-size="9" fill="var(--muted)">${bytes(d.down+d.up).replace(" ","")}</text>`;
+    }).join("");
+  }
+  // presence timelines
+  const N = B.slots;
+  $("#b-presence").innerHTML = B.presence.map(p => {
+    const runs=[]; let st=null, prev=null;
+    for (const s of p.slots){ if(st===null){st=s;prev=s;} else if(s===prev+1){prev=s;} else {runs.push([st,prev]);st=s;prev=s;} }
+    if(st!==null) runs.push([st,prev]);
+    const rects = runs.map(([a,b])=>`<rect x="${a}" y="2" width="${b-a+1}" height="10" rx="1" fill="var(--accent)"/>`).join("");
+    const ticks = [6,12,18].map(h=>`<line x1="${N*h/24}" x2="${N*h/24}" y1="0" y2="14" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("");
+    return `<div class="tl"><div class="who">${esc(p.label)}</div>
+      <svg viewBox="0 0 ${N} 14" preserveAspectRatio="none"><rect x="0" y="2" width="${N}" height="10" rx="2" fill="var(--chip)"/>${ticks}${rects}</svg></div>`;
+  }).join("") || `<div class="empty">Builds up as readings come in.</div>`;
+  // makers
+  $("#b-makers").innerHTML = B.makers.length ? B.makers.map(([v,n]) => `<span class="maker">${esc(shortVendor(v)||v)}<b>${n}</b></span>`).join("")
+    + (B.vendor_db ? "" : `<div style="font-size:12px;color:var(--muted);margin-top:8px">Manufacturer list not downloaded yet; it retries daily.</div>`)
+    : `<div class="empty">No devices online.</div>`;
+  // logs
+  const logRow = (e, text) => `<div class="event"><div class="when">${when(e.ts)}</div><div>${text}</div></div>`;
+  $("#b-roams").innerHTML = B.roams.map(e => logRow(e, `<span class="k">${esc(e.label)}</span>
+      <div style="font-size:12px;color:var(--muted)">${esc(e.detail)}</div>`)).join("")
+    || `<div class="empty">Shows when a device switches Deco or band.</div>`;
+  $("#b-network").innerHTML = B.network.map(e => logRow(e, esc(e.detail))).join("")
+    || `<div class="empty">Public IP changes, internet drops and mesh changes show here.</div>`;
+}
+
 async function load(){
-  try { S = await api("/api/state"); render(); }
+  try { S = await api("/api/state"); render(); if (!$("#tab-beta").classList.contains("hidden")) loadBeta(); }
   catch(e){ $("#updated").textContent = "dashboard offline"; $("#dot").classList.add("bad"); }
 }
 load(); setInterval(load, 15000);

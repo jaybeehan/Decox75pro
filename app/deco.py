@@ -274,7 +274,8 @@ class DemoSource:
                  {"2.4 GHz": 3, "5 GHz": 3, "6 GHz": 2}),
         ]
         base = [
-            ("3C:22:FB:11:22:33", "Jason's Find X9 Pro", "192.168.68.101", "6 GHz", "main", 0),
+            ("3C:22:FB:11:22:33", "Jason's Find X9 Pro", "192.168.68.101",
+             "5 GHz" if self.tick % 3 == 0 else "6 GHz", "main", 1 if self.tick % 3 == 0 else 0),
             ("F0:18:98:44:55:66", "iPad", "192.168.68.102", "5 GHz", "main", 0),
             ("00:11:32:AA:BB:CC", "Synology NAS", "192.168.68.10", "wired", "main", 0),
             ("B8:27:EB:12:34:56", "Living Room TV", "192.168.68.103", "5 GHz", "main", 0),
