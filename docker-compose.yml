@@ -1,0 +1,18 @@
+# Paste this into Synology Container Manager → Project → Create.
+# Only the lines marked CHANGE need editing.
+services:
+  deco-dashboard:
+    image: ghcr.io/jaybeehan/decox75pro:latest
+    container_name: deco-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # open http://<NAS-IP>:8080
+    volumes:
+      - ./data:/data         # device history lives here
+    environment:
+      DECO_HOST: "http://192.168.68.1"     # CHANGE if your main Deco has a different IP (Deco app → More → Advanced → LAN IP)
+      DECO_PASSWORD: "your-tplink-id-password"   # CHANGE: the password of the TP-Link ID that owns the Deco
+      DASH_PASSWORD: ""      # optional: a password for this dashboard (any username works)
+      NTFY_URL: ""           # optional: e.g. https://ntfy.sh/some-long-secret-name for phone alerts on new devices
+      POLL_SECONDS: "60"
+      TZ: "America/Edmonton"

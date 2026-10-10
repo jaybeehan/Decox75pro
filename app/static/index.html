@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<title>Deco Dashboard</title>
+<style>
+:root{
+  --bg:#f4f5f2; --card:#ffffff; --ink:#16201c; --muted:#66716c; --line:#e3e6e1;
+  --accent:#0f7a5c; --accent-soft:#e2f2ec; --warn:#b4540a; --warn-soft:#fbeedd;
+  --bad:#b42318; --bad-soft:#fde8e6; --chip:#eef0ec;
+  --b24:#7c5cc4; --b5:#1f6fb2; --b6:#0f7a5c; --wired:#5d6670;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1720; --card:#17212b; --ink:#e8ede9; --muted:#93a19a; --line:#25313c;
+    --accent:#3fc59a; --accent-soft:#16352c; --warn:#f0a35c; --warn-soft:#3a2716;
+    --bad:#f38b80; --bad-soft:#3b1d1b; --chip:#212d38;
+    --b24:#a990ee; --b5:#6fb0ea; --b6:#3fc59a; --wired:#9aa5b0;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 0;
+  padding-top:max(14px,env(safe-area-inset-top))}
+.top{display:flex;align-items:center;gap:10px}
+h1{font-size:19px;margin:0;letter-spacing:-.01em;flex:1}
+.status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.dot.bad{background:var(--bad)}
+.iconbtn{border:0;background:var(--chip);color:var(--ink);width:36px;height:36px;border-radius:10px;
+  font-size:17px;cursor:pointer}
+nav{display:flex;gap:4px;margin:12px 0 0;border-bottom:1px solid var(--line)}
+nav button{flex:1;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;
+  padding:10px 0;border-bottom:2px solid transparent;cursor:pointer}
+nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding:14px 16px 40px;max-width:760px;margin:0 auto}
+.banner{border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:14px;display:flex;gap:10px;align-items:center}
+.banner.warn{background:var(--warn-soft);color:var(--warn)}
+.banner.bad{background:var(--bad-soft);color:var(--bad)}
+.banner.info{background:var(--accent-soft);color:var(--accent)}
+.banner button{margin-left:auto;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-weight:600;
+  background:var(--card);color:inherit;cursor:pointer;white-space:nowrap}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.stat{background:var(--card);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stat span{font-size:12px;color:var(--muted)}
+input[type=search]{width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:10px;padding:10px 12px;font:inherit;margin-bottom:12px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 2px 8px;
+  display:flex;justify-content:space-between}
+.list{background:var(--card);border-radius:14px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-top:1px solid var(--line);cursor:pointer}
+.row:first-child{border-top:0}
+.row .main{flex:1;min-width:0}
+.row .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .speed{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.badge{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700;
+  color:#fff;flex:none}
+.chip{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--chip);
+  color:var(--muted);margin-left:4px;font-weight:600;vertical-align:1px}
+.chip.new{background:var(--warn-soft);color:var(--warn)}
+.chip.guest{background:var(--accent-soft);color:var(--accent)}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px}
+.card h3{margin:0 0 2px;font-size:16px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;margin-top:10px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;word-break:break-all}
+.toggle{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--line)}
+.toggle:first-child{border-top:0}
+.switch{position:relative;width:46px;height:28px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch i{position:absolute;inset:0;background:var(--line);border-radius:99px;transition:.2s;cursor:pointer}
+.switch i::after{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;
+  border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch input:checked + i{background:var(--accent)}
+.switch input:checked + i::after{transform:translateX(18px)}
+.switch input:disabled + i{opacity:.5}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:12px;font:inherit;font-weight:600;cursor:pointer;
+  background:var(--chip);color:var(--ink);margin-top:8px}
+.btn.danger{background:var(--bad-soft);color:var(--bad)}
+.btn.primary{background:var(--accent);color:#fff}
+.chart{background:var(--card);border-radius:14px;padding:12px 12px 6px;margin-bottom:10px}
+.chart .lbl{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}
+.chart svg{display:block;width:100%;height:70px;margin-top:6px}
+.event{display:flex;gap:10px;padding:10px 12px;border-top:1px solid var(--line);font-size:14px}
+.event:first-child{border-top:0}
+.event .when{color:var(--muted);font-size:12px;width:76px;flex:none;font-variant-numeric:tabular-nums}
+.event .k{font-weight:600}
+.k.new{color:var(--warn)} .k.offline{color:var(--muted)} .k.online{color:var(--accent)}
+.empty{padding:18px;text-align:center;color:var(--muted);font-size:14px}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--card);border-radius:18px 18px 0 0;
+  padding:16px 16px max(16px,env(safe-area-inset-bottom));max-height:85vh;overflow:auto;
+  transform:translateY(100%);transition:transform .2s,visibility .2s;max-width:760px;margin:0 auto;visibility:hidden}
+.sheet.open{transform:none;visibility:visible}
+.sheet label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+.sheet input[type=text],.sheet textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+  border-radius:10px;padding:10px;font:inherit}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 12px}
+.hidden{display:none!important}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;opacity:0;transition:.2s;pointer-events:none}
+.toast.on{opacity:1}
+details summary{cursor:pointer;list-style:none}
+details summary::-webkit-details-marker{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Home Wi‑Fi</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="updated">connecting…</span></div>
+    <button class="iconbtn" id="refresh" aria-label="Refresh">↻</button>
+  </div>
+  <nav>
+    <button data-tab="devices" class="on">Devices</button>
+    <button data-tab="mesh">Mesh</button>
+    <button data-tab="activity">Activity</button>
+  </nav>
+</header>
+
+<main>
+  <div id="banners"></div>
+
+  <section id="tab-devices">
+    <div class="stats">
+      <div class="stat"><b id="s-online">–</b><span>online</span></div>
+      <div class="stat"><b id="s-down">–</b><span>download</span></div>
+      <div class="stat"><b id="s-up">–</b><span>upload</span></div>
+    </div>
+    <input type="search" id="q" placeholder="Search name, IP or MAC">
+    <div id="by-node"></div>
+    <details id="offline-wrap">
+      <summary><h2><span>Seen before (offline)</span><span id="off-count"></span></h2></summary>
+      <div class="list" id="offline"></div>
+    </details>
+  </section>
+
+  <section id="tab-mesh" class="hidden">
+    <div id="nodes"></div>
+    <h2>Wi‑Fi networks</h2>
+    <div class="list" id="wifi"></div>
+    <h2>Internet</h2>
+    <div class="card"><dl class="kv" id="wan"></dl></div>
+    <h2>Maintenance</h2>
+    <div class="card">
+      <div style="font-size:13px;color:var(--muted)">Restarts both Decos. Wi‑Fi drops for about 2–3 minutes.</div>
+      <button class="btn danger" id="reboot">Reboot mesh</button>
+    </div>
+  </section>
+
+  <section id="tab-activity" class="hidden">
+    <div class="chart"><div class="lbl"><span>Devices online · 24 h</span><span id="c-count"></span></div><svg id="chart-count"></svg></div>
+    <div class="chart"><div class="lbl"><span>Total download · 24 h</span><span id="c-down"></span></div><svg id="chart-down"></svg></div>
+    <h2>Events</h2>
+    <div class="list" id="events"></div>
+  </section>
+</main>
+
+<div class="sheet-bg" id="sheet-bg"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h3 id="d-title" style="margin:0"></h3>
+  <div id="d-sub" style="font-size:13px;color:var(--muted)"></div>
+  <dl class="kv" id="d-kv"></dl>
+  <label for="d-nick">Nickname</label>
+  <input type="text" id="d-nick" placeholder="e.g. Kids' tablet">
+  <label for="d-notes">Notes</label>
+  <textarea id="d-notes" rows="2"></textarea>
+  <div class="toggle" style="padding:12px 0 0;border:0">
+    <span>I recognise this device</span>
+    <label class="switch"><input type="checkbox" id="d-known"><i></i></label>
+  </div>
+  <button class="btn primary" id="d-save">Save</button>
+  <button class="btn" id="d-close">Close</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let S = null, current = null;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const bandColor = b => b==="wired"?"var(--wired)":b==="2.4 GHz"?"var(--b24)":b==="6 GHz"?"var(--b6)":"var(--b5)";
+const bandShort = b => b==="wired"?"LAN":b.replace(" GHz","G");
+function rate(bps){ if(bps==null) return "–"; const b=bps*8;
+  if(b>=1e6) return (b/1e6).toFixed(b>=1e8?0:1)+" Mb/s"; if(b>=1e3) return (b/1e3).toFixed(0)+" kb/s"; return b+" b/s"; }
+function ago(ts){ if(!ts) return "never"; const s=Date.now()/1000-ts;
+  if(s<60) return "just now"; if(s<3600) return Math.floor(s/60)+" min ago";
+  if(s<86400) return Math.floor(s/3600)+" h ago"; return Math.floor(s/86400)+" d ago"; }
+function when(ts){ const d=new Date(ts*1000), t=new Date();
+  return d.toDateString()===t.toDateString() ? d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})
+    : d.toLocaleDateString([], {month:"short",day:"numeric"}); }
+function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("on"); setTimeout(()=>t.classList.remove("on"),2200); }
+async function api(path, body){
+  const r = await fetch(path, body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||r.statusText); return j; }
+
+// tabs
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x===b));
+  ["devices","mesh","activity"].forEach(t => $("#tab-"+t).classList.toggle("hidden", t!==b.dataset.tab));
+});
+
+function nodeName(mac){ const n=(S.nodes||[]).find(n=>n.mac===mac); return n?n.name:""; }
+function label(c){ return c.nickname || c.name || c.mac; }
+
+function deviceRow(c, offline){
+  const band = offline ? (c.last_band||"") : c.band;
+  const net = offline ? c.last_network : c.network;
+  const chips = (!c.known ? '<span class="chip new">new</span>' : "") +
+                (net && net!=="main" ? `<span class="chip guest">${esc(net)}</span>` : "");
+  const sub = offline ? `${esc(c.last_ip||"")} · last seen ${ago(c.last_seen)}`
+                      : `${esc(c.ip)}${c.nickname && c.name!==c.nickname ? " · "+esc(c.name) : ""}`;
+  const speed = offline ? "" : `↓ ${rate(c.down_bps)}<br>↑ ${rate(c.up_bps)}`;
+  return `<div class="row" data-mac="${esc(c.mac)}" data-off="${offline?1:0}">
+    <div class="badge" style="background:${band?bandColor(band):"var(--wired)"};${offline?"opacity:.45":""}">${band?bandShort(band):"?"}</div>
+    <div class="main"><div class="name">${esc(label(c))}${chips}</div><div class="sub">${sub}</div></div>
+    <div class="speed">${speed}</div></div>`;
+}
+
+function render(){
+  // header + banners
+  $("#dot").classList.toggle("bad", !S.ok || !!S.error);
+  $("#updated").textContent = S.last_ok ? "updated "+ago(S.last_ok) : (S.error ? "can't reach Deco" : "connecting…");
+  let bn = "";
+  if (S.demo) bn += `<div class="banner info">Demo mode: showing sample data, not your network.</div>`;
+  if (S.error) bn += `<div class="banner bad">Can't read the Deco: ${esc(S.error.slice(0,180))}</div>`;
+  if (S.unknown_count) bn += `<div class="banner warn">${S.unknown_count} new device${S.unknown_count>1?"s":""} online. Tap to review.<button id="ack-all">Mark all OK</button></div>`;
+  $("#banners").innerHTML = bn;
+  const ack = $("#ack-all"); if (ack) ack.onclick = async () => { await api("/api/known-all", {}); load(); };
+
+  // devices
+  const q = $("#q").value.trim().toLowerCase();
+  const match = c => !q || [c.name,c.nickname,c.ip,c.last_ip,c.mac].some(v => (v||"").toLowerCase().includes(q));
+  const online = S.online.filter(match).sort((a,b) => (a.known-b.known) || label(a).localeCompare(label(b)));
+  $("#s-online").textContent = S.online.length;
+  $("#s-down").textContent = rate(S.online.reduce((a,c)=>a+(c.down_bps||0),0));
+  $("#s-up").textContent = rate(S.online.reduce((a,c)=>a+(c.up_bps||0),0));
+  const groups = {};
+  for (const c of online){ const k = nodeName(c.node_mac) || "Unassigned"; (groups[k] ||= []).push(c); }
+  const order = (S.nodes||[]).map(n=>n.name).concat(["Unassigned"]);
+  $("#by-node").innerHTML = order.filter(k=>groups[k]).map(k =>
+    `<h2><span>${esc(k)}</span><span>${groups[k].length}</span></h2><div class="list">${groups[k].map(c=>deviceRow(c,false)).join("")}</div>`
+  ).join("") || `<div class="list"><div class="empty">${S.ok?"No devices match.":"Waiting for the first reading…"}</div></div>`;
+  const off = S.offline.filter(match);
+  $("#off-count").textContent = off.length;
+  $("#offline").innerHTML = off.map(c=>deviceRow(c,true)).join("") || `<div class="empty">Nothing yet.</div>`;
+  document.querySelectorAll(".row[data-mac]").forEach(r => r.onclick = () => openSheet(r.dataset.mac, r.dataset.off==="1"));
+
+  // mesh
+  $("#nodes").innerHTML = (S.nodes||[]).map(n => {
+    const count = S.online.filter(c=>c.node_mac===n.mac).length;
+    const sig = Object.entries(n.signal||{}).map(([b,v])=>`${esc(b)} ${"▮".repeat(+v||0)}${"▯".repeat(Math.max(0,3-(+v||0)))}`).join("  ");
+    return `<div class="card"><h3>${esc(n.name)} <span class="chip">${n.role==="master"?"main":"satellite"}</span>
+      ${n.online?"":'<span class="chip new">offline</span>'}</h3>
+      <div style="font-size:13px;color:var(--muted)">${esc(n.model)} · ${count} device${count===1?"":"s"}</div>
+      <dl class="kv"><dt>IP</dt><dd>${esc(n.ip||"–")}</dd><dt>Link to mesh</dt><dd>${esc(n.backhaul||"–")}</dd>
+      ${sig?`<dt>Signal</dt><dd>${sig}</dd>`:""}<dt>Internet</dt><dd>${esc(n.internet||"–")}</dd>
+      <dt>Firmware</dt><dd>${esc(n.firmware||"–")}</dd><dt>MAC</dt><dd>${esc(n.mac)}</dd></dl></div>`;
+  }).join("") || `<div class="card empty">No station data yet.</div>`;
+  const wkeys = Object.keys(S.wifi||{}).sort((a,b)=>b.split("|")[0].localeCompare(a.split("|")[0]) || a.localeCompare(b));
+  $("#wifi").innerHTML = wkeys.map(k => { const [net,band]=k.split("|");
+    return `<div class="toggle"><span>${net==="main"?"Main":"Guest"} · ${esc(band)}</span>
+      <label class="switch"><input type="checkbox" data-wifi="${esc(k)}" ${S.wifi[k]?"checked":""}><i></i></label></div>`;
+  }).join("") || `<div class="empty">Not available yet.</div>`;
+  document.querySelectorAll("[data-wifi]").forEach(i => i.onchange = async () => {
+    const [network, band] = i.dataset.wifi.split("|");
+    if (network==="main" && !i.checked && !confirm(`Turn off main ${band} Wi‑Fi? Devices on it will disconnect.`)) { i.checked=true; return; }
+    i.disabled = true;
+    try { await api("/api/wifi", {network, band, enable:i.checked}); toast(`${network==="main"?"Main":"Guest"} ${band} ${i.checked?"on":"off"}`); }
+    catch(e){ i.checked=!i.checked; toast("Failed: "+e.message); }
+    i.disabled = false; setTimeout(load, 3000);
+  });
+  const w = S.wan||{}, p = S.perf||{};
+  $("#wan").innerHTML = `<dt>Public IP</dt><dd>${esc(w.ip||"–")}</dd><dt>Gateway</dt><dd>${esc(w.gateway||"–")}</dd>
+    <dt>DNS</dt><dd>${esc(w.dns||"–")}</dd><dt>Connection</dt><dd>${esc(w.type||"–")}</dd>
+    <dt>LAN IP</dt><dd>${esc(w.lan_ip||"–")}</dd>
+    <dt>Main unit CPU</dt><dd>${p.cpu!=null?Math.round(p.cpu*100)+"%":"–"}</dd>
+    <dt>Main unit memory</dt><dd>${p.mem!=null?Math.round(p.mem*100)+"%":"–"}</dd>`;
+
+  // activity
+  spark("#chart-count", S.samples.map(s=>s.clients), "var(--accent)");
+  spark("#chart-down", S.samples.map(s=>s.down), "var(--b5)");
+  const cs = S.samples.map(s=>s.clients);
+  $("#c-count").textContent = cs.length ? `min ${Math.min(...cs)} · max ${Math.max(...cs)}` : "";
+  const ds = S.samples.map(s=>s.down);
+  $("#c-down").textContent = ds.length ? `peak ${rate(Math.max(...ds))}` : "";
+  $("#events").innerHTML = S.events.map(e => `<div class="event"><div class="when">${when(e.ts)}</div>
+    <div><span class="k ${esc(e.kind)}">${{new:"New device",online:"Back online",offline:"Went offline"}[e.kind]||esc(e.kind)}</span>
+    · ${esc(e.nickname||e.name||e.mac)}<div style="font-size:12px;color:var(--muted)">${esc(e.detail||"")}</div></div></div>`).join("")
+    || `<div class="empty">Events appear here as devices come and go.</div>`;
+}
+
+function spark(sel, vals, color){
+  const svg = $(sel), W=300, H=70;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio","none");
+  if (vals.length < 2){ svg.innerHTML = `<text x="${W/2}" y="40" text-anchor="middle" font-size="12" fill="var(--muted)">collecting data…</text>`; return; }
+  const max = Math.max(...vals, 1), step = W/(vals.length-1);
+  const pts = vals.map((v,i)=>`${(i*step).toFixed(1)},${(H-4-(v/max)*(H-10)).toFixed(1)}`).join(" ");
+  svg.innerHTML = `<polygon points="0,${H} ${pts} ${W},${H}" fill="${color}" opacity=".15"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+}
+
+function openSheet(mac, offline){
+  const c = (offline ? S.offline : S.online).find(x=>x.mac===mac); if(!c) return;
+  current = c;
+  $("#d-title").textContent = label(c);
+  $("#d-sub").textContent = offline ? "Offline · last seen "+ago(c.last_seen) : `Online on ${nodeName(c.node_mac)||"mesh"}`;
+  const band = offline?c.last_band:c.band, ip = offline?c.last_ip:c.ip, net = offline?c.last_network:c.network;
+  $("#d-kv").innerHTML = `<dt>Reported name</dt><dd>${esc(c.name)}</dd><dt>IP</dt><dd>${esc(ip||"–")}</dd>
+    <dt>MAC</dt><dd>${esc(c.mac)}</dd><dt>Connection</dt><dd>${esc(band||"–")} · ${esc(net||"main")} network</dd>
+    <dt>First seen</dt><dd>${c.first_seen?new Date(c.first_seen*1000).toLocaleString():"–"}</dd>
+    ${offline?"":`<dt>Speed now</dt><dd>↓ ${rate(c.down_bps)} · ↑ ${rate(c.up_bps)}</dd>`}`;
+  $("#d-nick").value = c.nickname||""; $("#d-notes").value = c.notes||""; $("#d-known").checked = !!c.known;
+  $("#sheet-bg").style.display="block"; requestAnimationFrame(()=>$("#sheet").classList.add("open"));
+}
+function closeSheet(){ $("#sheet").classList.remove("open"); setTimeout(()=>$("#sheet-bg").style.display="none",200); current=null; }
+$("#sheet-bg").onclick = closeSheet; $("#d-close").onclick = closeSheet;
+$("#d-save").onclick = async () => {
+  if(!current) return;
+  try { await api("/api/device/"+encodeURIComponent(current.mac), {nickname:$("#d-nick").value.trim(), notes:$("#d-notes").value, known:$("#d-known").checked});
+    toast("Saved"); closeSheet(); load(); } catch(e){ toast("Failed: "+e.message); }
+};
+
+$("#reboot").onclick = async () => {
+  if (!confirm("Reboot both Decos now? Wi‑Fi will be down for a few minutes.")) return;
+  try { await api("/api/reboot", {}); toast("Rebooting…"); } catch(e){ toast("Failed: "+e.message); }
+};
+$("#refresh").onclick = async () => { await api("/api/refresh", {}); toast("Refreshing…"); setTimeout(load, 4000); };
+$("#q").oninput = () => S && render();
+
+async function load(){
+  try { S = await api("/api/state"); render(); }
+  catch(e){ $("#updated").textContent = "dashboard offline"; $("#dot").classList.add("bad"); }
+}
+load(); setInterval(load, 15000);
+</script>
+</body>
+</html>
