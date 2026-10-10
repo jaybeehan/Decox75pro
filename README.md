@@ -32,7 +32,7 @@ Deco XE75 Pro as supported. Nothing goes through TP-Link's cloud.
    - Source: *Create docker-compose.yml*, and paste the contents of
      [`docker-compose.yml`](docker-compose.yml).
    - Change `DECO_PASSWORD` (and `DECO_HOST` if your main Deco isn't `192.168.68.1`).
-4. Tap **Next → Done**. When it's running, open `http://<NAS-IP>:8080`.
+4. Tap **Next → Done**. When it's running, open `http://<NAS-IP>:18473`.
 
 The first reading treats every device already on your network as known, so you only get
 "new device" alerts for devices that join after that.
@@ -60,7 +60,7 @@ When the code changes, GitHub rebuilds the image automatically. In Container Man
   reading, but if you're using `tplinkdeco.net` in a browser at the same moment, one of them may
   get logged out. The phone app is not affected.
 - If the page shows "Can't read the Deco", check the password and host first. Then look at
-  `http://<NAS-IP>:8080/api/raw` (raw Deco responses, Wi-Fi passwords removed) and the container
+  `http://<NAS-IP>:18473/api/raw` (raw Deco responses, Wi-Fi passwords removed) and the container
   log in Container Manager.
 - Device history is kept in `data/deco.db` in the project folder. Speed samples are kept 30 days,
   events 180 days.
