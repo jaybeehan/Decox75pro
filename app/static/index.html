@@ -176,6 +176,18 @@ details summary::-webkit-details-marker{display:none}
         internet status changes, public IP changes, the Deco being unreachable, and any device you switch on
         "Notify me" for (in its details).</div>
     </div>
+    <h2>Device blocking (investigating)</h2>
+    <div class="card">
+      <div style="font-size:13px;color:var(--muted)">Checks which hidden features your Deco answers to, to see whether an
+        internet on/off switch per device is possible. Read-only: it changes nothing.</div>
+      <button class="btn" id="b-probe">Run check</button>
+      <div id="b-probe-out" class="hidden" style="margin-top:10px">
+        <div id="b-probe-sum" style="font-size:14px;margin-bottom:8px"></div>
+        <textarea id="b-probe-raw" rows="6" readonly style="width:100%;font:12px ui-monospace,monospace;border:1px solid var(--line);
+          border-radius:10px;padding:8px;background:var(--bg);color:var(--ink)"></textarea>
+        <button class="btn" id="b-probe-copy">Copy results</button>
+      </div>
+    </div>
     <a class="btn" href="/api/export.csv" style="text-align:center;text-decoration:none;margin-bottom:6px">Download device list (CSV)</a>
     <h2><span>Data used today (estimate)</span><span id="b-today"></span></h2>
     <div class="list" id="b-top"></div>
@@ -375,6 +387,25 @@ $("#d-save").onclick = async () => {
     toast("Saved"); closeSheet(); load(); } catch(e){ toast("Failed: "+e.message); }
 };
 
+$("#b-probe").onclick = async () => {
+  const b = $("#b-probe"); b.disabled = true; b.textContent = "Checking… (about 20 s)";
+  try {
+    const r = await api("/api/probe");
+    const yes = Object.entries(r).filter(([k,v]) => v && v.answered).map(([k]) => k);
+    $("#b-probe-sum").innerHTML = yes.length
+      ? `Your Deco answered <b>${yes.length}</b> of them: ${yes.map(esc).join(", ")}`
+      : "Your Deco didn't answer any of them.";
+    $("#b-probe-raw").value = JSON.stringify(r);
+    $("#b-probe-out").classList.remove("hidden");
+  } catch(e){ toast("Check failed: " + e.message); }
+  b.disabled = false; b.textContent = "Run check again";
+};
+$("#b-probe-copy").onclick = () => {
+  const t = $("#b-probe-raw"); t.focus(); t.select();
+  try { (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject()).catch(() => document.execCommand("copy")); }
+  catch(e){ document.execCommand("copy"); }
+  toast("Copied. Paste it to Claude.");
+};
 $("#b-test").onclick = async () => {
   try { await api("/api/notify-test", {}); toast("Sent. Check your phone."); } catch(e){ toast(e.message); }
 };

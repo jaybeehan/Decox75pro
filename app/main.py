@@ -469,6 +469,15 @@ def api_refresh():
     return jsonify({"ok": True})
 
 
+@app.get("/api/probe")
+@auth
+def api_probe():
+    try:
+        return jsonify(source.probe())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.get("/api/raw")
 @auth
 def api_raw():

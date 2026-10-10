@@ -134,6 +134,47 @@ class DecoSource:
             return json.loads(json.dumps(out).replace('"password"', '"password_hidden"'))
         return self._session(go)
 
+    PROBE_PATHS = [
+        "admin/access_control?form=enable", "admin/access_control?form=black_list",
+        "admin/access_control?form=block_list", "admin/access_control?form=white_list",
+        "admin/access_control?form=mode", "admin/client?form=block_list", "admin/client?form=blacklist",
+        "admin/client?form=client_block", "admin/client?form=access", "admin/parental_control?form=owner_list",
+        "admin/parental_control?form=enable", "admin/parental_control?form=pause",
+        "admin/parental_control?form=list", "admin/qos?form=setting", "admin/qos?form=client_list",
+        "admin/security?form=blocklist", "admin/firewall?form=black_list", "admin/smart_network?form=block",
+        "admin/device?form=sysmode", "admin/system?form=sysmode",
+    ]
+
+    def probe(self) -> dict:
+        """Read-only check of which (undocumented) endpoints this Deco answers. Changes nothing."""
+        def go(c):
+            out = {}
+            for path in self.PROBE_PATHS:
+                try:
+                    r = c.request(path, json.dumps({"operation": "read"}), ignore_errors=True)
+                    if isinstance(r, dict) and "error_code" in r and r.get("error_code") != 0:
+                        out[path] = {"answered": False, "error_code": r.get("error_code")}
+                    else:
+                        keys = list(r.keys())[:15] if isinstance(r, dict) else type(r).__name__
+                        out[path] = {"answered": True, "keys": keys,
+                                     "sample": json.dumps(r)[:400].replace('"password"', '"password_hidden"')}
+                except Exception as e:
+                    out[path] = {"answered": False, "error": str(e)[:120]}
+                if not out[path]["answered"]:
+                    try:  # an unknown request can end the session on some firmware; log in again
+                        c.authorize()
+                    except Exception:
+                        pass
+            try:  # what fields does one client entry carry? (maybe a block flag)
+                lst = c.request("admin/client?form=client_list",
+                                json.dumps({"operation": "read", "params": {"device_mac": "default"}})
+                                ).get("client_list", [])
+                out["client_entry_fields"] = sorted(lst[0].keys()) if lst else []
+            except Exception as e:
+                out["client_entry_fields"] = str(e)[:120]
+            return out
+        return self._session(go)
+
     def _read_all(self, c) -> Snapshot:
         snap = Snapshot(ok=True, taken_at=time.time())
 
@@ -298,6 +339,11 @@ class DemoSource:
 
     def raw(self):
         return {"demo": True}
+
+    def probe(self):
+        return {"admin/access_control?form=black_list": {"answered": True, "keys": ["demo"], "sample": "{}"},
+                "admin/qos?form=setting": {"answered": False, "error_code": -40101},
+                "client_entry_fields": ["mac", "name", "online"]}
 
     def set_wifi(self, network, band, enable):
         self.wifi[f"{network}|{band}"] = enable
