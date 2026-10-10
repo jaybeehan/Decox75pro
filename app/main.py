@@ -469,11 +469,11 @@ def api_refresh():
     return jsonify({"ok": True})
 
 
-@app.get("/api/probe")
+@app.get("/api/discover")
 @auth
-def api_probe():
+def api_discover():
     try:
-        return jsonify(source.probe())
+        return jsonify(source.discover())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

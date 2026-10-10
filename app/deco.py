@@ -13,6 +13,7 @@ import base64
 import json
 import logging
 import random
+import re
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -134,46 +135,87 @@ class DecoSource:
             return json.loads(json.dumps(out).replace('"password"', '"password_hidden"'))
         return self._session(go)
 
-    PROBE_PATHS = [
-        "admin/access_control?form=enable", "admin/access_control?form=black_list",
-        "admin/access_control?form=block_list", "admin/access_control?form=white_list",
-        "admin/access_control?form=mode", "admin/client?form=block_list", "admin/client?form=blacklist",
-        "admin/client?form=client_block", "admin/client?form=access", "admin/parental_control?form=owner_list",
-        "admin/parental_control?form=enable", "admin/parental_control?form=pause",
-        "admin/parental_control?form=list", "admin/qos?form=setting", "admin/qos?form=client_list",
-        "admin/security?form=blocklist", "admin/firewall?form=black_list", "admin/smart_network?form=block",
-        "admin/device?form=sysmode", "admin/system?form=sysmode",
-    ]
+    # Words that mark a command we must never send, even as a "read".
+    UNSAFE = ("reboot", "reset", "factory", "upgrade", "firmware", "restore", "backup", "logout", "login",
+              "remove", "delete", "del_", "add_", "write", "set_", "bind", "unbind", "format", "update", "auth")
 
-    def probe(self) -> dict:
-        """Read-only check of which (undocumented) endpoints this Deco answers. Changes nothing."""
+    @staticmethod
+    def _scrub(obj):
+        """Hide anything that looks like a password or key before showing it."""
+        if isinstance(obj, dict):
+            return {k: ("***" if re.search(r"pass|psk|key|token|secret|pwd", k, re.I) else DecoSource._scrub(v))
+                    for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [DecoSource._scrub(x) for x in obj[:3]]
+        return obj
+
+    def _fetch_web_ui(self):
+        """Download the Deco's own web-page scripts and pull out every local command they use."""
+        import requests
+        base = self.host.rstrip("/")
+        seen_files, queue, found, notes = set(), ["/", "/webpages/index.html"], set(), []
+        total = 0
+        while queue and len(seen_files) < 80 and total < 25_000_000:
+            path = queue.pop(0)
+            if path in seen_files:
+                continue
+            seen_files.add(path)
+            try:
+                r = requests.get(base + path, timeout=15, verify=self.verify_ssl)
+            except Exception as e:
+                notes.append(f"{path}: {str(e)[:80]}")
+                continue
+            if r.status_code != 200:
+                continue
+            text = r.text
+            total += len(text)
+            for m in re.finditer(r"""(?:src|href)\s*=\s*["']([^"'#?]+\.(?:js|html))""", text):
+                ref = m.group(1)
+                if ref.startswith("http"):
+                    continue
+                if not ref.startswith("/"):
+                    ref = path.rsplit("/", 1)[0] + "/" + ref
+                queue.append(re.sub(r"/\./", "/", ref))
+            for m in re.finditer(r"""["'/](?:admin|domain_login|login)/([a-z0-9_]+)\?form=([a-z0-9_]+)""", text):
+                found.add(f"admin/{m.group(1)}?form={m.group(2)}")
+            # scripts loaded by name, e.g. "js/app.js" inside other scripts
+            for m in re.finditer(r"""["']((?:\.{0,2}/)?[a-zA-Z0-9_\-/]+\.js)["']""", text):
+                ref = m.group(1)
+                if not ref.startswith("/"):
+                    ref = "/webpages/" + ref.lstrip("./")
+                queue.append(ref)
+        return sorted(found), sorted(seen_files), notes
+
+    def discover(self) -> dict:
+        """Find the commands the Deco's web page uses, then try each one as a read. Changes nothing."""
+        try:
+            endpoints, files, notes = self._fetch_web_ui()
+        except Exception as e:
+            return {"error": f"could not read the Deco web page: {e}"}
+        safe = [e for e in endpoints if not any(w in e.lower() for w in self.UNSAFE)]
+        skipped = [e for e in endpoints if e not in safe]
+
         def go(c):
-            out = {}
-            for path in self.PROBE_PATHS:
+            answered, refused = {}, []
+            for path in safe:
                 try:
                     r = c.request(path, json.dumps({"operation": "read"}), ignore_errors=True)
-                    if isinstance(r, dict) and "error_code" in r and r.get("error_code") != 0:
-                        out[path] = {"answered": False, "error_code": r.get("error_code")}
+                    bad = isinstance(r, dict) and ((r.get("error_code") not in (None, 0)) or r.get("success") is False)
+                    if bad or r is None:
+                        refused.append(path)
                     else:
-                        keys = list(r.keys())[:15] if isinstance(r, dict) else type(r).__name__
-                        out[path] = {"answered": True, "keys": keys,
-                                     "sample": json.dumps(r)[:400].replace('"password"', '"password_hidden"')}
-                except Exception as e:
-                    out[path] = {"answered": False, "error": str(e)[:120]}
-                if not out[path]["answered"]:
-                    try:  # an unknown request can end the session on some firmware; log in again
+                        answered[path] = json.dumps(self._scrub(r))[:300]
+                except Exception:
+                    refused.append(path)
+                    try:
                         c.authorize()
                     except Exception:
                         pass
-            try:  # what fields does one client entry carry? (maybe a block flag)
-                lst = c.request("admin/client?form=client_list",
-                                json.dumps({"operation": "read", "params": {"device_mac": "default"}})
-                                ).get("client_list", [])
-                out["client_entry_fields"] = sorted(lst[0].keys()) if lst else []
-            except Exception as e:
-                out["client_entry_fields"] = str(e)[:120]
-            return out
-        return self._session(go)
+            return answered, refused
+
+        answered, refused = self._session(go) if safe else ({}, [])
+        return {"files_read": len(files), "found": len(endpoints), "answered": answered,
+                "refused": refused, "skipped_unsafe": skipped, "notes": notes[:10]}
 
     def _read_all(self, c) -> Snapshot:
         snap = Snapshot(ok=True, taken_at=time.time())
@@ -340,10 +382,11 @@ class DemoSource:
     def raw(self):
         return {"demo": True}
 
-    def probe(self):
-        return {"admin/access_control?form=black_list": {"answered": True, "keys": ["demo"], "sample": "{}"},
-                "admin/qos?form=setting": {"answered": False, "error_code": -40101},
-                "client_entry_fields": ["mac", "name", "online"]}
+    def discover(self):
+        return {"files_read": 12, "found": 4,
+                "answered": {"admin/network?form=performance": '{"cpu_usage": 0.1, "mem_usage": 0.4}',
+                             "admin/device?form=device_list": '{"device_list": [{"mac": "..."}]}'},
+                "refused": ["admin/foo?form=bar"], "skipped_unsafe": ["admin/system?form=reboot"], "notes": []}
 
     def set_wifi(self, network, band, enable):
         self.wifi[f"{network}|{band}"] = enable

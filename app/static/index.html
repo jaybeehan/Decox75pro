@@ -176,11 +176,12 @@ details summary::-webkit-details-marker{display:none}
         internet status changes, public IP changes, the Deco being unreachable, and any device you switch on
         "Notify me" for (in its details).</div>
     </div>
-    <h2>Device blocking (investigating)</h2>
+    <h2>Explore the Deco's local API</h2>
     <div class="card">
-      <div style="font-size:13px;color:var(--muted)">Checks which hidden features your Deco answers to, to see whether an
-        internet on/off switch per device is possible. Read-only: it changes nothing.</div>
-      <button class="btn" id="b-probe">Run check</button>
+      <div style="font-size:13px;color:var(--muted)">Reads the scripts behind the Deco's own web page to list every local
+        command it knows, then tries each one as a read-only request. Anything that sounds like a change (reboot,
+        reset, upgrade…) is skipped. Takes up to a minute.</div>
+      <button class="btn" id="b-probe">Run discovery</button>
       <div id="b-probe-out" class="hidden" style="margin-top:10px">
         <div id="b-probe-sum" style="font-size:14px;margin-bottom:8px"></div>
         <textarea id="b-probe-raw" rows="6" readonly style="width:100%;font:12px ui-monospace,monospace;border:1px solid var(--line);
@@ -388,17 +389,17 @@ $("#d-save").onclick = async () => {
 };
 
 $("#b-probe").onclick = async () => {
-  const b = $("#b-probe"); b.disabled = true; b.textContent = "Checking… (about 20 s)";
+  const b = $("#b-probe"); b.disabled = true; b.textContent = "Exploring… (up to a minute)";
   try {
-    const r = await api("/api/probe");
-    const yes = Object.entries(r).filter(([k,v]) => v && v.answered).map(([k]) => k);
-    $("#b-probe-sum").innerHTML = yes.length
-      ? `Your Deco answered <b>${yes.length}</b> of them: ${yes.map(esc).join(", ")}`
-      : "Your Deco didn't answer any of them.";
+    const r = await api("/api/discover");
+    if (r.error) throw new Error(r.error);
+    const n = Object.keys(r.answered||{}).length;
+    $("#b-probe-sum").innerHTML = `Read ${r.files_read} files and found <b>${r.found}</b> commands. ` +
+      `<b>${n}</b> returned data, ${(r.refused||[]).length} were refused, ${(r.skipped_unsafe||[]).length} skipped as unsafe.`;
     $("#b-probe-raw").value = JSON.stringify(r);
     $("#b-probe-out").classList.remove("hidden");
-  } catch(e){ toast("Check failed: " + e.message); }
-  b.disabled = false; b.textContent = "Run check again";
+  } catch(e){ toast("Discovery failed: " + e.message); }
+  b.disabled = false; b.textContent = "Run discovery again";
 };
 $("#b-probe-copy").onclick = () => {
   const t = $("#b-probe-raw"); t.focus(); t.select();
