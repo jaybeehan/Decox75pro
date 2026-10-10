@@ -28,7 +28,8 @@ Deco XE75 Pro as supported. Nothing goes through TP-Link's cloud.
 2. **Open DSM** in the browser while on home Wi-Fi: `http://<NAS-IP>:5000`.
 3. **Container Manager → Project → Create.**
    - Project name: `deco-dashboard`
-   - Path: create a folder, e.g. `/docker/deco-dashboard`
+   - Path: create a folder, e.g. `/docker/deco-dashboard`, and inside it (in File Station)
+     create an empty folder named `data`. Synology won't create it for you.
    - Source: *Create docker-compose.yml*, and paste the contents of
      [`docker-compose.yml`](docker-compose.yml).
    - Change `DECO_PASSWORD` (and `DECO_HOST` if your main Deco isn't `192.168.68.1`).
