@@ -3,6 +3,7 @@
 services:
   deco-dashboard:
     image: ghcr.io/jaybeehan/decox75pro:latest
+    pull_policy: always      # fetch the newest version every time you Build
     container_name: deco-dashboard
     restart: unless-stopped
     ports:

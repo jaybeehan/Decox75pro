@@ -261,7 +261,9 @@ def auth(fn):
 @app.get("/")
 @auth
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    resp = send_from_directory(app.static_folder, "index.html")
+    resp.headers["Cache-Control"] = "no-cache"  # always pick up a new version after an update
+    return resp
 
 
 @app.get("/api/state")

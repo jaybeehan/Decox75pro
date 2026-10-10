@@ -48,7 +48,8 @@ The first reading treats every device already on your network as known, so you o
 ### Updating
 
 When the code changes, GitHub rebuilds the image automatically. In Container Manager:
-**Project → deco-dashboard → Action → Build** (or **Image → Update** if offered) to pull the latest.
+**Project → deco-dashboard → Action → Build**. The compose file has `pull_policy: always`, so
+Build fetches the newest image. (If your compose file predates that line, add it under `image:`.)
 
 ## Settings (environment variables)
 
